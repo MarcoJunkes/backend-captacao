@@ -3,42 +3,38 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Goutte\Client;
+use App\Factory\iso4217Factory;
+use App\Repository\iso4217Repository;
 use Symfony\Component\DomCrawler\Crawler;
-use App\Models\iso4217;
 
 class Iso4217Controller extends Controller
 {
+    protected $iso4217Repository;
+
+    public function __construct(iso4217Repository $iso4217Repository)
+    {
+        $this->iso4217Repository = $iso4217Repository;
+    }
+
     public function store(Request $request)
     {
-        $client = new Client();
-        $website = $client->request('GET', 'https://pt.wikipedia.org/wiki/ISO_4217');
-        
-        // Inicializa os arrays para armazenar os códigos e números recebidos
-        $codes = [];
-        
-        // Obtém os parâmetros da requisição
-        $codeList = $request->input('code_list', []);
-        $code = $request->input('code');
-        $numberList = $request->input('number_lists', []);
-        $number = $request->input('number', []);
-        
-        // Adiciona os códigos e números aos arrays de códigos
-        if (!empty($codeList)) {
-            $codes = array_merge($codes, $codeList);
+        $client = iso4217Factory::createClient();
+        $website;
+
+        try {
+            $website = $client->request('GET', 'https://pt.wikipedia.org/wiki/ISO_4217');
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Erro ao acessar o site: ' . $e->getMessage()
+            ], 500);
         }
-        
-        if ($code) {
-            $codes[] = $code;
-        }
-        
-        if (!empty($numberList)) {
-            $codes = array_merge($codes, $numberList);
-        }
-        
-        if (!empty($number)) {
-            $codes = array_merge($codes, $number);
-        }
+
+        $codes = array_merge(
+            $request->input('code_list', []),
+            (array)$request->input('code'),
+            $request->input('number_lists', []),
+            (array)$request->input('number', [])
+        );
 
         if (empty($codes)) {
             return response()->json([
@@ -46,17 +42,23 @@ class Iso4217Controller extends Controller
             ], 400);
         }
 
-        // Inicializa arrays para armazenar resultados e códigos/números encontrados
-        $table = $website->filter('table.wikitable')->first();
+        $table;
+        try {
+            $table = $website->filter('table.wikitable')->first();
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Erro ao processar a tabela: ' . $e->getMessage()
+            ], 500);
+        }
+
         $result = [];
         $foundCodes = [];
 
-        // Processa a tabela para encontrar e armazenar dados relevantes
         $table->filter('tr')->each(function (Crawler $row, $i) use (&$codes, &$result, &$foundCodes) {
             if ($i == 0) {
                 return; // Ignora o cabeçalho
             }
-            
+
             $columns = $row->filter('td');
             if ($columns->count() > 0) {
                 $code = $columns->eq(0)->text();
@@ -69,7 +71,7 @@ class Iso4217Controller extends Controller
                         'currency' => $columns->eq(3)->text(),
                         'currency_locations' => []
                     ];
-                    
+
                     $locations = $columns->eq(4)->filter('a');
                     $locations->each(function (Crawler $location) use (&$currencyData) {
                         $currencyData['currency_locations'][] = [
@@ -77,17 +79,16 @@ class Iso4217Controller extends Controller
                             'icon' => $location->filter('img')->count() > 0 ? $location->filter('img')->attr('src') : ''
                         ];
                     });
-                    
+
                     $result[] = $currencyData;
                     $foundCodes[] = $code; // Adiciona o código à lista de encontrados
                     $foundCodes[] = $number; // Adiciona o número à lista de encontrados
-                    
-                    iso4217::updateOrCreate(['code' => $code], ['code' => $code]);
+
+                    $this->iso4217Repository->updateOrCreate(['code' => $code], ['code' => $code]);
                 }
             }
         });
 
-        // Verifica se todos os códigos ou números fornecidos foram encontrados
         $invalidCodes = array_diff($codes, $foundCodes);
         if (!empty($invalidCodes)) {
             return response()->json([
