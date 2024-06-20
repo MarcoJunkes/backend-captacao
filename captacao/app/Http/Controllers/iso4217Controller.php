@@ -20,7 +20,7 @@ class Iso4217Controller extends Controller
     {
         $client = iso4217Factory::createClient();
         $website;
-
+ 
         try {
             $website = $client->request('GET', 'https://pt.wikipedia.org/wiki/ISO_4217');
         } catch (\Exception $e) {
@@ -97,6 +97,6 @@ class Iso4217Controller extends Controller
             ], 400);
         }
 
-        return response()->json($result);
+        return response()->json($result, 200);
     }
 }
