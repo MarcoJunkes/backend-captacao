@@ -35,3 +35,5 @@
 
 5. **Parar os containers Docker:**
    - Quando não precisar mais dos containers em execução, pare-os com o comando `docker compose down`.
+
+(obs: lembre-se de estar dentro do diretório "captacao")
